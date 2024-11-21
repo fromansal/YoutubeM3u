@@ -1,39 +1,49 @@
 import os
 import time
-import requests
-from bs4 import BeautifulSoup
+from selenium 
+import webdriver
+from selenium.webdriver.chrome.service 
+import Service
+from selenium.webdriver.common.by 
+import By
+from selenium.webdriver.chrome.options 
+import Options
+from selenium.webdriver.support.ui 
+import WebDriverWait
+from selenium.webdriver.support 
+import expected_conditions 
+as EC
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def fetch_m3u8(youtube_url):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36'
-    }
+    options = Options()
+    options.headless = True
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    service = Service('/usr/bin/chromedriver')  # Ensure the correct path to chromedriver
+    driver = webdriver.Chrome(service=service, options=options)
+    
     logging.info(f'Fetching m3u8 link for URL: {youtube_url.strip()}')
-    retries = 3
-    for attempt in range(retries):
-        try:
-            response = requests.get(youtube_url.strip(), headers=headers, timeout=30)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Log a portion of the HTML content for debugging
-            logging.debug(f'Page content (truncated): {response.text[:1000]}')
-            
-            for script in soup.find_all('script'):
-                if 'hlsManifestUrl' in script.text:
-                    start = script.text.find('hlsManifestUrl') + len('hlsManifestUrl":"')
-                    end = script.text.find('",', start)
-                    m3u8_url = script.text[start:end].replace('\\u0026', '&')
-                    logging.info(f'Found m3u8 link: {m3u8_url}')
-                    return m3u8_url
-            logging.warning(f'No m3u8 link found in page content for URL: {youtube_url.strip()}.')
-        except requests.RequestException as e:
-            logging.error(f'Error fetching m3u8 link: {e}, attempt {attempt + 1}/{retries}')
-            if attempt < retries - 1:
-                time.sleep(10)  # Wait before retrying
-    logging.warning(f'No m3u8 link found for URL: {youtube_url.strip()} after {retries} attempts')
+    driver.get(youtube_url.strip())
+    try:
+        # Wait for the script containing hlsManifestUrl to load
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.XPATH, "//script[contains(text(), 'hlsManifestUrl')]"))
+        )
+        page_source = driver.page_source
+        if 'hlsManifestUrl' in page_source:
+            start = page_source.find('hlsManifestUrl') + len('hlsManifestUrl":"')
+            end = page_source.find('",', start)
+            m3u8_url = page_source[start:end].replace('\\u0026', '&')
+            logging.info(f'Found m3u8 link: {m3u8_url}')
+            return m3u8_url
+    except Exception as e:
+        logging.error(f'Error fetching m3u8 link: {e}')
+    finally:
+        driver.quit()
+    logging.warning(f'No m3u8 link found for URL: {youtube_url.strip()}')
     return None
 
 def update_channel_info():
