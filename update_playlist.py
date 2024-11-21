@@ -1,9 +1,9 @@
 import os
 import time
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import logging
@@ -13,10 +13,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 def fetch_m3u8(youtube_url):
     options = Options()
     options.headless = True
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    service = Service('/usr/bin/chromedriver')  # Ensure the correct path to chromedriver
-    driver = webdriver.Chrome(service=service, options=options)
+    service = Service('/usr/local/bin/geckodriver')  # Ensure the correct path to geckodriver
+    driver = webdriver.Firefox(service=service, options=options)
     
     logging.info(f'Fetching m3u8 link for URL: {youtube_url.strip()}')
     driver.get(youtube_url.strip())
