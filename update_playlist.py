@@ -24,6 +24,8 @@ def fetch_m3u8(youtube_url):
                     m3u8_url = script.text[start:end].replace('\\u0026', '&')
                     logging.info(f'Found m3u8 link: {m3u8_url}')
                     return m3u8_url
+            logging.warning(f'No m3u8 link found in page content for URL: {youtube_url.strip()}.')
+            logging.debug(f'Page content: {response.text}')
         except requests.RequestException as e:
             logging.error(f'Error fetching m3u8 link: {e}, attempt {attempt + 1}/{retries}')
             if attempt < retries - 1:
