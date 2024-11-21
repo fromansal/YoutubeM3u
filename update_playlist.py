@@ -17,6 +17,10 @@ def fetch_m3u8(youtube_url):
             response = requests.get(youtube_url.strip(), headers=headers, timeout=30)
             response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Log a portion of the HTML content for debugging
+            logging.debug(f'Page content (truncated): {response.text[:1000]}')
+            
             for script in soup.find_all('script'):
                 if 'hlsManifestUrl' in script.text:
                     start = script.text.find('hlsManifestUrl') + len('hlsManifestUrl":"')
@@ -25,7 +29,6 @@ def fetch_m3u8(youtube_url):
                     logging.info(f'Found m3u8 link: {m3u8_url}')
                     return m3u8_url
             logging.warning(f'No m3u8 link found in page content for URL: {youtube_url.strip()}.')
-            logging.debug(f'Page content: {response.text}')
         except requests.RequestException as e:
             logging.error(f'Error fetching m3u8 link: {e}, attempt {attempt + 1}/{retries}')
             if attempt < retries - 1:
