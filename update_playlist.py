@@ -11,20 +11,24 @@ def fetch_m3u8(youtube_url):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36'
     }
     logging.info(f'Fetching m3u8 link for URL: {youtube_url.strip()}')
-    try:
-        response = requests.get(youtube_url.strip(), headers=headers)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
-        for script in soup.find_all('script'):
-            if 'hlsManifestUrl' in script.text:
-                start = script.text.find('hlsManifestUrl') + len('hlsManifestUrl":"')
-                end = script.text.find('",', start)
-                m3u8_url = script.text[start:end].replace('\\u0026', '&')
-                logging.info(f'Found m3u8 link: {m3u8_url}')
-                return m3u8_url
-    except requests.RequestException as e:
-        logging.error(f'Error fetching m3u8 link: {e}')
-    logging.warning(f'No m3u8 link found for URL: {youtube_url.strip()}')
+    retries = 3
+    for attempt in range(retries):
+        try:
+            response = requests.get(youtube_url.strip(), headers=headers, timeout=30)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'html.parser')
+            for script in soup.find_all('script'):
+                if 'hlsManifestUrl' in script.text:
+                    start = script.text.find('hlsManifestUrl') + len('hlsManifestUrl":"')
+                    end = script.text.find('",', start)
+                    m3u8_url = script.text[start:end].replace('\\u0026', '&')
+                    logging.info(f'Found m3u8 link: {m3u8_url}')
+                    return m3u8_url
+        except requests.RequestException as e:
+            logging.error(f'Error fetching m3u8 link: {e}, attempt {attempt + 1}/{retries}')
+            if attempt < retries - 1:
+                time.sleep(10)  # Wait before retrying
+    logging.warning(f'No m3u8 link found for URL: {youtube_url.strip()} after {retries} attempts')
     return None
 
 def update_channel_info():
