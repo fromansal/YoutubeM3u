@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import requests
 from bs4 import BeautifulSoup
@@ -18,49 +19,87 @@ def get_stream_url(youtube_url: str) -> str:
     }
 
     try:
+        # Create session
         session = requests.Session()
-        response = session.get(youtube_url, headers=headers)
+        
+        # First get the channel page
+        logger.info(f'Fetching channel URL: {youtube_url}')
+        response = session.get(youtube_url, headers=headers, timeout=15)
+        logger.info(f'Channel page status code: {response.status_code}')
+        
         if response.status_code != 200:
+            logger.error(f'Failed to get channel page: {response.status_code}')
             return None
 
-        # Extract video ID
+        # Look for video ID
         video_id = None
-        for pattern in [
-            r'videoId":"([^"]+)"',
+        video_patterns = [
+            r'"videoId":"([^"]+)"',
             r'v=([^&]+)',
             r'youtu.be/([^"?/]+)'
-        ]:
+        ]
+        
+        for pattern in video_patterns:
             match = re.search(pattern, response.text)
             if match:
                 video_id = match.group(1)
+                logger.info(f'Found video ID: {video_id}')
                 break
 
         if not video_id:
+            logger.error('No video ID found')
+            # Save response for debugging
+            with open('channel_response.html', 'w', encoding='utf-8') as f:
+                f.write(response.text)
             return None
 
-        # Get watch page
+        # Get the watch page
         watch_url = f'https://www.youtube.com/watch?v={video_id}'
-        watch_response = session.get(watch_url, headers=headers)
-        
+        logger.info(f'Fetching watch URL: {watch_url}')
+        watch_response = session.get(watch_url, headers=headers, timeout=15)
+        logger.info(f'Watch page status code: {watch_response.status_code}')
+
+        if watch_response.status_code != 200:
+            logger.error(f'Failed to get watch page: {watch_response.status_code}')
+            return None
+
+        # Save watch page response for debugging
+        with open('watch_response.html', 'w', encoding='utf-8') as f:
+            f.write(watch_response.text)
+
         # Look for hlsManifestUrl
-        match = re.search(r'"hlsManifestUrl":"([^"]+)"', watch_response.text)
-        if match:
-            m3u8_url = match.group(1).replace('\\u0026', '&')
-            logger.info(f'Found HLS URL for {video_id}')
+        manifest_match = re.search(r'"hlsManifestUrl":"([^"]+)"', watch_response.text)
+        if manifest_match:
+            manifest_url = manifest_match.group(1).replace('\\u0026', '&')
+            logger.info(f'Found manifest URL: {manifest_url}')
             
-            # Request the m3u8 URL to get the final variant URL
-            m3u8_response = session.get(m3u8_url, headers=headers)
-            if m3u8_response.status_code == 200:
-                # Extract the first variant URL (usually the highest quality)
-                lines = m3u8_response.text.splitlines()
-                for line in lines:
-                    if line.startswith('https://') and '.m3u8' in line:
-                        return line
+            # Get the manifest content
+            manifest_response = session.get(manifest_url, headers=headers, timeout=15)
+            logger.info(f'Manifest response status code: {manifest_response.status_code}')
+            
+            if manifest_response.status_code == 200:
+                # Save manifest content for debugging
+                with open('manifest_response.txt', 'w', encoding='utf-8') as f:
+                    f.write(manifest_response.text)
+                
+                # Extract the highest quality variant URL
+                variants = [line for line in manifest_response.text.splitlines() 
+                          if line.startswith('https://') and '.m3u8' in line]
+                
+                if variants:
+                    logger.info(f'Found {len(variants)} variant URLs')
+                    return variants[0]
+                else:
+                    logger.error('No variant URLs found in manifest')
+            else:
+                logger.error(f'Failed to get manifest: {manifest_response.status_code}')
+        else:
+            logger.error('No manifest URL found in watch page')
 
         return None
 
     except Exception as e:
-        logger.error(f'Error getting stream URL: {str(e)}')
+        logger.error(f'Error in get_stream_url: {str(e)}')
         return None
 
 def update_playlist():
@@ -70,36 +109,52 @@ def update_playlist():
         playlist_path = os.path.join(current_dir, 'playlist.m3u')
         log_path = os.path.join(current_dir, 'update_log.txt')
 
-        logger.info(f'Reading from: {channel_info_path}')
-        with open(channel_info_path, 'r', encoding='utf-8') as file:
-            channels = [line.strip().split('|') for line in file if line.strip()]
+        # Ensure we can read the channel info
+        if not os.path.exists(channel_info_path):
+            logger.error(f'Channel info file not found: {channel_info_path}')
+            return {"status": "error", "message": "Channel info file not found"}
 
+        # Read channel info
+        logger.info(f'Reading channel info from: {channel_info_path}')
+        with open(channel_info_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+            logger.info(f'Channel info content:\n{content}')
+            channels = [line.strip().split('|') for line in content.splitlines() if line.strip()]
+
+        logger.info(f'Found {len(channels)} channels')
+        
+        # Process channels
         success_count = 0
         failed_channels = []
         playlist_content = '#EXTM3U\n'
 
         for channel_info in channels:
             if len(channel_info) != 4:
+                logger.error(f'Invalid channel info format: {channel_info}')
                 continue
 
             name, group, logo, url = [part.strip() for part in channel_info]
-            logger.info(f'Processing channel: {name}')
+            logger.info(f'\nProcessing channel: {name}')
+            logger.info(f'URL: {url}')
 
             stream_url = get_stream_url(url)
             if stream_url:
+                logger.info(f'Got stream URL for {name}: {stream_url}')
                 playlist_content += f'#EXTINF:-1 tvg-logo="{logo}" group-title="{group}",{name}\n'
                 playlist_content += f'{stream_url}\n'
                 success_count += 1
-                logger.info(f'Successfully added {name}')
             else:
+                logger.error(f'Failed to get stream URL for {name}')
                 failed_channels.append(name)
-                logger.warning(f'Failed to get stream for {name}')
 
         # Write playlist file
+        logger.info(f'Writing playlist to: {playlist_path}')
+        logger.info(f'Playlist content:\n{playlist_content}')
+        
         with open(playlist_path, 'w', encoding='utf-8') as file:
             file.write(playlist_content)
 
-        # Update log file
+        # Update log
         timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
         log_entry = f"""
 Update Time: {timestamp}
@@ -111,37 +166,19 @@ Failed Channels: {', '.join(failed_channels) if failed_channels else 'None'}
         with open(log_path, 'a', encoding='utf-8') as file:
             file.write(log_entry)
 
-        # Update README
-        readme_content = f"""# IPTV Playlist
-
-Last Updated: {timestamp}
-
-## Status
-- Total Channels: {len(channels)}
-- Working Channels: {success_count}
-- Failed Channels: {len(failed_channels)}
-
-## Usage
-Add this URL to your IPTV player:
-```
-https://raw.githubusercontent.com/fromansal/YoutubeM3u/main/playlist.m3u
-```
-"""
-        with open(os.path.join(current_dir, 'README.md'), 'w', encoding='utf-8') as file:
-            file.write(readme_content)
-
-        return {
+        result = {
             "status": "success",
             "channels_processed": len(channels),
             "channels_updated": success_count,
-            "details": {
-                "successful": len(channels) - len(failed_channels),
-                "failed": failed_channels
-            }
+            "failed_channels": failed_channels,
+            "playlist_content": playlist_content
         }
+        
+        logger.info(f'Final result: {json.dumps(result, indent=2)}')
+        return result
 
     except Exception as e:
-        logger.error(f'Error updating playlist: {str(e)}')
+        logger.error(f'Error in update_playlist: {str(e)}')
         return {
             "status": "error",
             "message": str(e)
