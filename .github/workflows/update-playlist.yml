@@ -2,8 +2,8 @@ name: Update Playlist
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # Runs every 30 minutes
-  workflow_dispatch:  # Allows manual trigger
+    - cron: '*/30 * * * *'  # Fixed cron syntax
+  workflow_dispatch:
 
 jobs:
   update-playlist:
@@ -35,22 +35,26 @@ jobs:
       run: |
         git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
+        git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_REPOSITORY
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT }}
     
     - name: Commit and Push
       run: |
-        # Pull latest changes first
-        git pull origin main
+        # Fetch and reset to match remote
+        git fetch origin main
+        git reset --hard origin/main
         
-        # Stage changes
-        git add playlist.m3u
-        git add README.md
-        git add update_log.txt
+        # Run the update again after reset
+        python update_playlist.py
         
-        # Check if there are changes to commit
+        # Add all changes
+        git add -A
+        
+        # Commit and push if there are changes
         if git diff --staged --quiet; then
           echo "No changes to commit"
         else
-          # Commit and push changes
           timestamp=$(date -u)
           git commit -m "Auto update playlist: ${timestamp}"
           git push origin main
