@@ -12,9 +12,11 @@ jobs:
       contents: write
     
     steps:
-    - uses: actions/checkout@v2
+    - name: Checkout repository
+      uses: actions/checkout@v2
       with:
-        persist-credentials: false
+        fetch-depth: 0
+        token: ${{ secrets.PAT }}
     
     - name: Set up Python
       uses: actions/setup-python@v2
@@ -29,21 +31,29 @@ jobs:
     - name: Update playlist
       run: python update_playlist.py
     
-    - name: Configure Git
+    - name: Setup Git
       run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
     
-    - name: Commit changes
+    - name: Commit and Push
       run: |
+        # Pull latest changes first
+        git pull origin main
+        
+        # Stage changes
         git add playlist.m3u
         git add README.md
         git add update_log.txt
-        timestamp=$(date -u)
-        git commit -m "Auto update playlist: ${timestamp}" || echo "No changes"
-    
-    - name: Push changes
-      uses: ad-m/github-push-action@master
-      with:
-        github_token: ${{ secrets.PAT }}
-        branch: ${{ github.ref }}
+        
+        # Check if there are changes to commit
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          # Commit and push changes
+          timestamp=$(date -u)
+          git commit -m "Auto update playlist: ${timestamp}"
+          git push origin main
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT }}
