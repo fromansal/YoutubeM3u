@@ -8,6 +8,8 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
     - uses: actions/checkout@v2
     
@@ -21,13 +23,15 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests beautifulsoup4
     
-    - name: Update playlist
-      run: python update_playlist.py
-    
-    - name: Commit and push changes
+    - name: Run test script
       run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
+        python test_youtube.py
+        cat playlist.m3u
+    
+    - name: Commit and push if changed
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
         git add playlist.m3u
-        git commit -m "Update playlist" || echo "No changes to commit"
+        git commit -m "Update playlist $(date +'%Y-%m-%d %H:%M:%S')" || echo "No changes"
         git push
