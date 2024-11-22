@@ -1,64 +1,132 @@
+#!/usr/bin/env python3
 import os
-import time
 import requests
 from bs4 import BeautifulSoup
 import logging
+import json
+import re
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-def fetch_m3u8(youtube_url):
+def get_stream_url(youtube_url: str) -> str:
+    """Get direct stream URL from YouTube."""
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
-    logging.info(f'Fetching m3u8 link for URL: {youtube_url.strip()}')
-    retries = 3
-    for attempt in range(retries):
-        try:
-            response = requests.get(youtube_url.strip(), headers=headers, timeout=30)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Log a portion of the HTML content for debugging
-            logging.debug(f'Page content (truncated): {response.text[:1000]}')
-            
-            for script in soup.find_all('script'):
-                if 'hlsManifestUrl' in script.text:
-                    start = script.text.find('hlsManifestUrl') + len('hlsManifestUrl":"')
-                    end = script.text.find('",', start)
-                    m3u8_url = script.text[start:end].replace('\\u0026', '&')
-                    logging.info(f'Found m3u8 link: {m3u8_url}')
-                    return m3u8_url
-            logging.warning(f'No m3u8 link found in page content for URL: {youtube_url.strip()}.')
-        except requests.RequestException as e:
-            logging.error(f'Error fetching m3u8 link: {e}, attempt {attempt + 1}/{retries}')
-            if attempt < retries - 1:
-                time.sleep(10)  # Wait before retrying
-    logging.warning(f'No m3u8 link found for URL: {youtube_url.strip()} after {retries} attempts')
-    return None
 
-def update_channel_info():
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    channel_info_path = os.path.join(current_dir, 'channel_info.txt')
+    try:
+        session = requests.Session()
+        response = session.get(youtube_url, headers=headers)
+        
+        if response.status_code == 200:
+            video_id_match = re.search(r'videoId":"([^"]+)"', response.text)
+            if video_id_match:
+                video_id = video_id_match.group(1)
+                logger.info(f'Found video ID: {video_id}')
+                
+                # Construct manifest URL
+                manifest_url = (
+                    f"https://manifest.googlevideo.com/api/manifest/hls_variant"
+                    f"/id/{video_id}"
+                    f"/source/yt_live_broadcast"
+                    f"/requiressl/yes"
+                    f"/playlist_type/DVR"
+                    f"/file/index.m3u8"
+                )
+                return manifest_url
+                
+        return None
+    except Exception as e:
+        logger.error(f'Error getting stream URL: {e}')
+        return None
 
-    with open(channel_info_path, 'r') as file:
-        lines = file.readlines()
+def update_playlist():
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        channel_info_path = os.path.join(current_dir, 'channel_info.txt')
+        playlist_path = os.path.join(current_dir, 'playlist.m3u')
+        log_path = os.path.join(current_dir, 'update_log.txt')
 
-    playlist_path = os.path.join(current_dir, 'playlist.m3u')
-    with open(playlist_path, 'w') as file:
-        file.write('#EXTM3U\n')
-        for line in lines:
-            parts = [part.strip() for part in line.strip().split('|')]
-            if len(parts) < 4:
+        # Read channels
+        with open(channel_info_path, 'r', encoding='utf-8') as file:
+            channels = [line.strip().split('|') for line in file if line.strip()]
+
+        # Create playlist
+        playlist_content = '#EXTM3U\n'
+        success_count = 0
+        failed_channels = []
+
+        for channel in channels:
+            if len(channel) != 4:
                 continue
-            channel_name, group_name, logo_url, youtube_url = parts
-            m3u8_url = fetch_m3u8(youtube_url)
-            if m3u8_url:
-                file.write(f'#EXTINF:-1 tvg-logo="{logo_url}" group-title="{group_name}",{channel_name}\n')
-                file.write(f'{m3u8_url}\n')
+                
+            name, group, logo, url = [part.strip() for part in channel]
+            logger.info(f'Processing: {name}')
+            
+            stream_url = get_stream_url(url)
+            
+            if stream_url:
+                playlist_content += f'#EXTINF:-1 tvg-logo="{logo}" group-title="{group}",{name}\n'
+                playlist_content += f'{stream_url}\n'
+                success_count += 1
+            else:
+                failed_channels.append(name)
+
+        # Write playlist file
+        with open(playlist_path, 'w', encoding='utf-8') as file:
+            file.write(playlist_content)
+
+        # Write log
+        timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+        log_entry = f"""
+Update Time: {timestamp}
+Channels Processed: {len(channels)}
+Successful Updates: {success_count}
+Failed Channels: {', '.join(failed_channels) if failed_channels else 'None'}
+"""
+        with open(log_path, 'a', encoding='utf-8') as file:
+            file.write(log_entry + '\n' + '-'*50 + '\n')
+
+        # Create direct link file
+        with open('README.md', 'w', encoding='utf-8') as file:
+            file.write(f"""# IPTV Playlist
+
+Last updated: {timestamp}
+
+## Direct Links
+
+- [Download Playlist](playlist.m3u)
+- [View Update Log](update_log.txt)
+
+## Statistics
+- Total Channels: {len(channels)}
+- Working Channels: {success_count}
+- Failed Channels: {len(failed_channels)}
+
+## Usage
+Add this URL to your IPTV player:
+```
+https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/playlist.m3u
+```
+""")
+
+        return {
+            "status": "success",
+            "timestamp": timestamp,
+            "channels_processed": len(channels),
+            "successful_updates": success_count,
+            "failed_channels": failed_channels
+        }
+
+    except Exception as e:
+        logger.error(f'Error: {str(e)}')
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 if __name__ == "__main__":
-    while True:
-        logging.info('Starting update cycle...')
-        update_channel_info()
-        logging.info('Update cycle complete. Sleeping for 3 hours.')
-        time.sleep(10800)  # Sleep for 3 hours (10800 seconds)
+    result = update_playlist()
+    print(json.dumps(result, indent=2))
