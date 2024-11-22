@@ -25,6 +25,13 @@ jobs:
     
     - name: Run playlist updater
       run: python youtube_updater.py
+      env:
+        PYTHONUNBUFFERED: 1
+    
+    - name: Verify playlist
+      run: |
+        echo "Checking playlist content:"
+        cat playlist.m3u
     
     - name: Commit and push if changed
       run: |
