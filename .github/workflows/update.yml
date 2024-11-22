@@ -18,20 +18,20 @@ jobs:
       with:
         python-version: '3.x'
     
-    - name: Install dependencies
+    - name: Install Chrome
+      run: |
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/sources.list.d/google.list'
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+    
+    - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install yt-dlp beautifulsoup4 requests
+        pip install selenium requests beautifulsoup4 webdriver_manager
     
     - name: Run playlist updater
       run: python youtube_updater.py
-      env:
-        PYTHONUNBUFFERED: 1
-    
-    - name: Verify playlist
-      run: |
-        echo "Checking playlist content:"
-        cat playlist.m3u
     
     - name: Commit and push if changed
       run: |
