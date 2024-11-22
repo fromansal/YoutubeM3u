@@ -28,60 +28,26 @@ def setup_driver():
     driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
 
-def get_stream_url(driver, url):
-    """Get stream URL using Selenium"""
+def fetch_m3u8(youtube_url):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36'
+    }
+    logging.info(f'Fetching m3u8 link for URL: {youtube_url.strip()}')
     try:
-        logger.info(f"Getting stream URL for: {url}")
-        
-        # Load the page
-        driver.get(url)
-        time.sleep(5)  # Wait for page to load
-        
-        # Get page source
-        page_source = driver.page_source
-        
-        # Look for video ID
-        video_id_match = re.search(r'"videoId":"([^"]+)"', page_source)
-        if not video_id_match:
-            logger.warning("No video ID found")
-            return None
-            
-        video_id = video_id_match.group(1)
-        logger.info(f"Found video ID: {video_id}")
-        
-        # Construct manifest URL
-        manifest_url = (
-            f"https://manifest.googlevideo.com/api/manifest/hls_variant"
-            f"/expire/1732284781/ei/DT1AZ4jjFdfd3LUPwc3UsA0"
-            f"/ip/2403:d4c0:bbbb:9e3:521:8ed2:4c53:f2ee"
-            f"/id/{video_id}.1"
-            f"/source/yt_live_broadcast"
-            f"/requiressl/yes"
-            f"/tx/51326655"
-            f"/hfr/1"
-            f"/playlist_duration/30"
-            f"/manifest_duration/30"
-            f"/maudio/1"
-            f"/vprv/1"
-            f"/go/1"
-            f"/pacing/0"
-            f"/nvgoi/1"
-            f"/keepalive/yes"
-            f"/fexp/24007246"
-            f"/dover/11"
-            f"/itag/0"
-            f"/playlist_type/DVR"
-            f"/sparams/expire,ei,ip,id,source,requiressl,tx,hfr,playlist_duration,manifest_duration,maudio,vprv,go,pacing,nvgoi,keepalive,fexp,dover,itag,playlist_type"
-            f"/sig/AJfQdSswRQIgb1qUP9RmPlnb0CAYHjD9rrudfqbhgNgjQWG7ZPUreagCIQDBVipizRz_-q5dtxOEOQczjAn69LF7sUKr6OUWl2yy6w=="
-            f"/file/index.m3u8"
-        )
-        
-        logger.info("Generated manifest URL")
-        return manifest_url
-        
-    except Exception as e:
-        logger.error(f"Error getting stream URL: {str(e)}")
-        return None
+        response = requests.get(youtube_url.strip(), headers=headers)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
+        for script in soup.find_all('script'):
+            if 'hlsManifestUrl' in script.text:
+                start = script.text.find('hlsManifestUrl') + len('hlsManifestUrl":"')
+                end = script.text.find('",', start)
+                m3u8_url = script.text[start:end].replace('\\u0026', '&')
+                logging.info(f'Found m3u8 link: {m3u8_url}')
+                return m3u8_url
+    except requests.RequestException as e:
+        logging.error(f'Error fetching m3u8 link: {e}')
+    logging.warning(f'No m3u8 link found for URL: {youtube_url.strip()}')
+    return None
 
 def update_playlist():
     """Update the M3U playlist"""
