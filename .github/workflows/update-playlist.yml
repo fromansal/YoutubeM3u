@@ -8,9 +8,13 @@ on:
 jobs:
   update-playlist:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - uses: actions/checkout@v2
+      with:
+        persist-credentials: false
     
     - name: Set up Python
       uses: actions/setup-python@v2
@@ -27,17 +31,19 @@ jobs:
     
     - name: Configure Git
       run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
     
     - name: Commit changes
       run: |
         git add playlist.m3u
+        git add README.md
+        git add update_log.txt
         timestamp=$(date -u)
         git commit -m "Auto update playlist: ${timestamp}" || echo "No changes"
     
     - name: Push changes
       uses: ad-m/github-push-action@master
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        branch: main
+        github_token: ${{ secrets.PAT }}
+        branch: ${{ github.ref }}
