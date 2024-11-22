@@ -1,37 +1,43 @@
-name: Update M3U Playlist
+name: Update Playlist
 
 on:
   schedule:
-    - cron: "0 */3 * * *"  # Run every 3 hours
-  push:
-    branches: [main]
+    - cron: '*/30 * * * *'  # Runs every 30 minutes
+  workflow_dispatch:  # Allows manual trigger
 
 jobs:
   update-playlist:
     runs-on: ubuntu-latest
-
+    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-
+    - uses: actions/checkout@v2
+    
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
         python-version: '3.x'
-
-    - name: Install dependencies
+    
+    - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install requests beautifulsoup4
-
-    - name: Run script
+    
+    - name: Update playlist
+      run: python update_playlist.py
+    
+    - name: Configure Git
       run: |
-        python update_playlist.py
-
-    - name: Commit updated playlist
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+    
+    - name: Commit changes
       run: |
-        git config --global user.name 'github-actions[bot]'
-        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
         git add playlist.m3u
-        git commit -m 'Update playlist with latest m3u8 links'
-        git push
+        timestamp=$(date -u)
+        git commit -m "Auto update playlist: ${timestamp}" || echo "No changes"
+    
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: main
