@@ -2,7 +2,7 @@ name: Update Playlist
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # Fixed cron syntax
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -28,9 +28,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests beautifulsoup4
     
-    - name: Update playlist
-      run: python update_playlist.py
-    
     - name: Setup Git
       run: |
         git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -38,20 +35,25 @@ jobs:
         git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/$GITHUB_REPOSITORY
       env:
         GITHUB_TOKEN: ${{ secrets.PAT }}
+
+    - name: Clean workspace
+      run: |
+        # Remove untracked files
+        git clean -fd
+        # Discard local changes
+        git checkout -- .
+        # Pull latest changes
+        git pull origin main
+    
+    - name: Update playlist
+      run: python update_playlist.py
     
     - name: Commit and Push
       run: |
-        # Fetch and reset to match remote
-        git fetch origin main
-        git reset --hard origin/main
-        
-        # Run the update again after reset
-        python update_playlist.py
-        
-        # Add all changes
+        # Add all files
         git add -A
         
-        # Commit and push if there are changes
+        # Commit if there are changes
         if git diff --staged --quiet; then
           echo "No changes to commit"
         else
