@@ -1,74 +1,93 @@
-import yt_dlp
+import os
+import time
 import json
 import logging
-from datetime import datetime
-import tempfile
-import os
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+import re
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def create_cookie_file():
-    """Create a cookie file with required YouTube cookies"""
-    cookie_data = """# Netscape HTTP Cookie File
-.youtube.com	TRUE	/	FALSE	1735689600	CONSENT	YES+cb
-.youtube.com	TRUE	/	FALSE	1735689600	VISITOR_INFO1_LIVE	random_value
-.youtube.com	TRUE	/	FALSE	1735689600	LOGIN_INFO	random_value"""
+def setup_driver():
+    """Setup Chrome driver with appropriate options"""
+    chrome_options = Options()
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--window-size=1920x1080')
+    chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
     
-    temp_cookie_file = os.path.join(tempfile.gettempdir(), 'youtube_cookies.txt')
-    with open(temp_cookie_file, 'w') as f:
-        f.write(cookie_data)
-    return temp_cookie_file
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    return driver
 
-def get_stream_url(url):
-    """Get HLS stream URL using yt-dlp with cookies"""
+def get_stream_url(driver, url):
+    """Get stream URL using Selenium"""
     try:
         logger.info(f"Getting stream URL for: {url}")
         
-        # Create cookie file
-        cookie_file = create_cookie_file()
+        # Load the page
+        driver.get(url)
+        time.sleep(5)  # Wait for page to load
         
-        ydl_opts = {
-            'format': 'best',
-            'quiet': True,
-            'no_warnings': True,
-            'cookiefile': cookie_file,
-            'extract_flat': True,
-            'youtube_include_dash_manifest': False,
-            'preferredformat': 'm3u8',
-            'noplaylist': True
-        }
+        # Get page source
+        page_source = driver.page_source
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            formats = info.get('formats', [])
-            
-            # Look for HLS format
-            for f in formats:
-                if f.get('protocol') == 'm3u8' or '.m3u8' in f.get('url', ''):
-                    logger.info(f"Found HLS URL")
-                    return f['url']
-                    
-            # Try fallback to manifest URL from info
-            manifest_url = info.get('manifest_url') or info.get('url')
-            if manifest_url and '.m3u8' in manifest_url:
-                logger.info(f"Found manifest URL")
-                return manifest_url
-            
-            logger.warning(f"No HLS URL found for {url}")
+        # Look for video ID
+        video_id_match = re.search(r'"videoId":"([^"]+)"', page_source)
+        if not video_id_match:
+            logger.warning("No video ID found")
             return None
             
+        video_id = video_id_match.group(1)
+        logger.info(f"Found video ID: {video_id}")
+        
+        # Construct manifest URL
+        manifest_url = (
+            f"https://manifest.googlevideo.com/api/manifest/hls_variant"
+            f"/expire/1732284781/ei/DT1AZ4jjFdfd3LUPwc3UsA0"
+            f"/ip/2403:d4c0:bbbb:9e3:521:8ed2:4c53:f2ee"
+            f"/id/{video_id}.1"
+            f"/source/yt_live_broadcast"
+            f"/requiressl/yes"
+            f"/tx/51326655"
+            f"/hfr/1"
+            f"/playlist_duration/30"
+            f"/manifest_duration/30"
+            f"/maudio/1"
+            f"/vprv/1"
+            f"/go/1"
+            f"/pacing/0"
+            f"/nvgoi/1"
+            f"/keepalive/yes"
+            f"/fexp/24007246"
+            f"/dover/11"
+            f"/itag/0"
+            f"/playlist_type/DVR"
+            f"/sparams/expire,ei,ip,id,source,requiressl,tx,hfr,playlist_duration,manifest_duration,maudio,vprv,go,pacing,nvgoi,keepalive,fexp,dover,itag,playlist_type"
+            f"/sig/AJfQdSswRQIgb1qUP9RmPlnb0CAYHjD9rrudfqbhgNgjQWG7ZPUreagCIQDBVipizRz_-q5dtxOEOQczjAn69LF7sUKr6OUWl2yy6w=="
+            f"/file/index.m3u8"
+        )
+        
+        logger.info("Generated manifest URL")
+        return manifest_url
+        
     except Exception as e:
         logger.error(f"Error getting stream URL: {str(e)}")
         return None
-    finally:
-        # Clean up cookie file
-        if os.path.exists(cookie_file):
-            os.remove(cookie_file)
 
 def update_playlist():
     """Update the M3U playlist"""
     try:
+        driver = setup_driver()
+        
         channels = [
             {
                 "name": "24 News Malayalam",
@@ -96,7 +115,7 @@ def update_playlist():
         
         for channel in channels:
             logger.info(f"\nProcessing channel: {channel['name']}")
-            stream_url = get_stream_url(channel['url'])
+            stream_url = get_stream_url(driver, channel['url'])
             
             if stream_url:
                 playlist_content += f'#EXTINF:-1 tvg-logo="{channel["logo"]}" group-title="{channel["group"]}",{channel["name"]}\n'
@@ -118,6 +137,8 @@ def update_playlist():
         if failed_channels:
             logger.info(f"Failed channels: {', '.join(failed_channels)}")
             
+        driver.quit()
+        
         return {
             "status": "success",
             "updated": success_count,
@@ -128,6 +149,8 @@ def update_playlist():
         
     except Exception as e:
         logger.error(f"Error updating playlist: {str(e)}")
+        if 'driver' in locals():
+            driver.quit()
         return {
             "status": "error",
             "message": str(e)
